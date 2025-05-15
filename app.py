@@ -46,6 +46,10 @@ if 'scaler' not in st.session_state:
     st.session_state.scaler = None
 if 'predictions' not in st.session_state:
     st.session_state.predictions = {}
+if 'test_years' not in st.session_state:
+    st.session_state.test_years = None
+if 'future_predictions' not in st.session_state:
+    st.session_state.future_predictions = None
 
 # Create tabs for better organization
 tab1, tab2, tab3 = st.tabs(["📊 Data & Training", "🔮 Prediction", "📈 Visualization"])
@@ -200,10 +204,13 @@ with tab2:
             )
             
             # Year selection for prediction
-            if st.session_state.data is not None:
+            # Check if data exists in session state
+            if hasattr(st.session_state, 'data') and st.session_state.data is not None:
+                # Use data from session state
                 min_year = int(st.session_state.data["Year"].max()) + 1
                 max_year = min_year + 100  # Allow prediction up to 100 years in the future
             else:
+                # Default values if no data is available
                 min_year = 2023
                 max_year = 2123
             
@@ -255,13 +262,17 @@ with tab2:
                     st.success(f"Prediction completed for {model_choice} model!")
         
         with col2:
-            if 'future_predictions' in st.session_state:
+            if hasattr(st.session_state, 'future_predictions') and st.session_state.future_predictions is not None:
                 st.subheader("Prediction Results")
                 
-                if len(st.session_state.future_predictions['Years']) == 1:
-                    year = st.session_state.future_predictions['Years'][0]
-                    prediction = st.session_state.future_predictions['Predictions'][0]
-                    model = st.session_state.future_predictions['Model']
+                # Access prediction data safely
+                years = st.session_state.future_predictions.get('Years', [])
+                predictions = st.session_state.future_predictions.get('Predictions', [])
+                model = st.session_state.future_predictions.get('Model', 'Unknown')
+                
+                if len(years) == 1:
+                    year = years[0]
+                    prediction = predictions[0]
                     
                     st.markdown(f"""
                     ### Predicted Sea Level for {year}
@@ -272,8 +283,12 @@ with tab2:
                     """)
                     
                     # Calculate the change from the latest recorded year
-                    latest_year = st.session_state.data["Year"].max()
-                    latest_level = st.session_state.data.loc[st.session_state.data["Year"] == latest_year, "Sea_Level_mm"].values[0]
+                    if hasattr(st.session_state, 'data') and st.session_state.data is not None:
+                        latest_year = st.session_state.data["Year"].max()
+                        latest_level = st.session_state.data.loc[st.session_state.data["Year"] == latest_year, "Sea_Level_mm"].values[0]
+                    else:
+                        latest_year = 2022  # Fallback to most recent year in sample data
+                        latest_level = 102.5  # Fallback to most recent level in sample data
                     change = prediction - latest_level
                     
                     st.markdown(f"""
@@ -282,20 +297,23 @@ with tab2:
                 else:
                     # Create a dataframe with predictions for multiple years
                     pred_df = pd.DataFrame({
-                        'Year': st.session_state.future_predictions['Years'],
-                        'Predicted_Sea_Level_mm': st.session_state.future_predictions['Predictions']
+                        'Year': years,
+                        'Predicted_Sea_Level_mm': predictions
                     })
                     
-                    st.write(f"Predictions using {st.session_state.future_predictions['Model']} model:")
+                    st.write(f"Predictions using {model} model:")
                     st.write(pred_df)
                     
-                    # Plot the predictions
-                    fig = plot_sea_level_prediction(
-                        st.session_state.data,
-                        pred_df,
-                        model_name=st.session_state.future_predictions['Model']
-                    )
-                    st.pyplot(fig)
+                    # Plot the predictions safely
+                    if hasattr(st.session_state, 'data') and st.session_state.data is not None:
+                        fig = plot_sea_level_prediction(
+                            st.session_state.data,
+                            pred_df,
+                            model_name=model
+                        )
+                        st.pyplot(fig)
+                    else:
+                        st.warning("Cannot plot predictions without historical data.")
 
 with tab3:
     st.header("Visualization")
@@ -329,8 +347,11 @@ with tab3:
             
         else:  # Model Comparison
             # Create the model comparison plot
-            fig = plot_model_comparison(st.session_state.metrics)
-            st.pyplot(fig)
+            if hasattr(st.session_state, 'metrics') and st.session_state.metrics is not None:
+                fig = plot_model_comparison(st.session_state.metrics)
+                st.pyplot(fig)
+            else:
+                st.warning("Please train models first to view model comparison.")
             
             # Additional information about the metrics
             st.subheader("Understanding the Metrics")
