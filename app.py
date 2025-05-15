@@ -140,6 +140,20 @@ with tab1:
                     st.session_state.y_test = y_test
                     st.session_state.scaler = scaler
                     
+                    # Save the original years corresponding to the test set
+                    # We need to track which rows go into the test set
+                    n_samples = len(X)
+                    indices = np.arange(n_samples)
+                    n_train = int(train_test_split * n_samples)
+                    # Use same random state as in the split_data function
+                    np.random.seed(42)
+                    # Shuffle indices
+                    np.random.shuffle(indices)
+                    # Get test indices
+                    test_indices = indices[n_train:]
+                    # Save the test years
+                    st.session_state.test_years = st.session_state.data.iloc[test_indices]["Year"].values
+                    
                     # Train the models
                     svr_params = {'C': svr_c, 'epsilon': svr_epsilon}
                     rf_params = {'n_estimators': rf_n_estimators, 'max_depth': rf_max_depth}
@@ -186,8 +200,12 @@ with tab2:
             )
             
             # Year selection for prediction
-            min_year = int(st.session_state.data["Year"].max()) + 1
-            max_year = min_year + 100  # Allow prediction up to 100 years in the future
+            if st.session_state.data is not None:
+                min_year = int(st.session_state.data["Year"].max()) + 1
+                max_year = min_year + 100  # Allow prediction up to 100 years in the future
+            else:
+                min_year = 2023
+                max_year = 2123
             
             # User can either enter a specific year or select a range
             pred_year_option = st.radio(
@@ -298,13 +316,16 @@ with tab3:
             )
             
             # Create the actual vs predicted plot
-            fig = plot_actual_vs_predicted(
-                st.session_state.data.iloc[st.session_state.X_test.index]["Year"].values,  
-                st.session_state.y_test, 
-                st.session_state.predictions[model_for_viz if model_for_viz == "SVR" else "Random Forest"],
-                model_name=model_for_viz
-            )
-            st.pyplot(fig)
+            if 'test_years' in st.session_state and st.session_state.test_years is not None:
+                fig = plot_actual_vs_predicted(
+                    st.session_state.test_years,  
+                    st.session_state.y_test, 
+                    st.session_state.predictions[model_for_viz if model_for_viz == "SVR" else "Random Forest"],
+                    model_name=model_for_viz
+                )
+                st.pyplot(fig)
+            else:
+                st.warning("Please train models first before visualizing results.")
             
         else:  # Model Comparison
             # Create the model comparison plot
