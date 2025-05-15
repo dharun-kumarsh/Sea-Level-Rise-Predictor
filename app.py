@@ -5,9 +5,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 from io import StringIO
+from sklearn.svm import SVR
+from sklearn.ensemble import RandomForestRegressor
 
 from data_processing import load_data, preprocess_data, split_data
-from model_training import train_models, evaluate_models, save_models, load_models
+from model_training import evaluate_models, save_models, load_models
 from visualization import plot_actual_vs_predicted, plot_model_comparison, plot_sea_level_prediction
 from prediction import predict_sea_level
 from utils import get_sample_data
@@ -61,37 +63,10 @@ with tab1:
     
     with col1:
         # Data loading section
-        st.subheader("Load Dataset")
-        data_option = st.radio(
-            "Select data source:",
-            ["Use sample data", "Upload your own CSV file"]
-        )
-        
-        if data_option == "Use sample data":
-            # Load sample data
-            df = get_sample_data()
-            st.success("Sample data loaded successfully!")
-        else:
-            # File uploader
-            uploaded_file = st.file_uploader("Upload CSV file with Year and Sea_Level_mm columns", type=["csv"])
-            
-            if uploaded_file is not None:
-                try:
-                    # Read the CSV file
-                    df = pd.read_csv(uploaded_file)
-                    
-                    # Validate the required columns exist
-                    required_columns = ["Year", "Sea_Level_mm"]
-                    if not all(col in df.columns for col in required_columns):
-                        st.error(f"The CSV file must contain these columns: {', '.join(required_columns)}")
-                        df = None
-                    else:
-                        st.success("Data loaded successfully!")
-                except Exception as e:
-                    st.error(f"Error loading data: {str(e)}")
-                    df = None
-            else:
-                df = None
+        st.subheader("Dataset")
+        # Only use sample data
+        df = get_sample_data()
+        st.success("Sample data loaded successfully!")
                 
         # Display the dataframe if it's loaded
         if df is not None:
@@ -115,22 +90,20 @@ with tab1:
         st.subheader("Model Training")
         
         if st.session_state.data is not None:
-            train_test_split = st.slider("Train-Test Split Ratio", 0.1, 0.9, 0.8, 0.05, 
-                                        help="Percentage of data to use for training")
+            # Model selection
+            model_choice = st.radio(
+                "Select model to train:",
+                ["SVR", "Random Forest"]
+            )
             
-            svr_c = st.number_input("SVR C parameter", 0.1, 1000.0, 100.0, 
-                                   help="Regularization parameter for SVR model")
-            svr_epsilon = st.number_input("SVR Epsilon", 0.01, 1.0, 0.1, 0.01, 
-                                         help="Epsilon value for SVR model")
-            
-            rf_n_estimators = st.number_input("Random Forest n_estimators", 10, 500, 100, 10, 
-                                            help="Number of trees in the Random Forest")
-            rf_max_depth = st.number_input("Random Forest max_depth", 1, 30, 10, 1, 
-                                         help="Maximum depth of the trees")
+            # Fixed parameters
+            train_test_split = 0.8
+            svr_params = {'C': 100.0, 'epsilon': 0.1}
+            rf_params = {'n_estimators': 100, 'max_depth': 10}
             
             # Training button
-            if st.button("Train Models"):
-                with st.spinner("Training models..."):
+            if st.button("Train Selected Model"):
+                with st.spinner(f"Training {model_choice} model..."):
                     # Preprocess the data
                     X, y, scaler = preprocess_data(st.session_state.data)
                     
@@ -158,13 +131,19 @@ with tab1:
                     # Save the test years
                     st.session_state.test_years = st.session_state.data.iloc[test_indices]["Year"].values
                     
-                    # Train the models
-                    svr_params = {'C': svr_c, 'epsilon': svr_epsilon}
-                    rf_params = {'n_estimators': rf_n_estimators, 'max_depth': rf_max_depth}
+                    # Train only the selected model
+                    if model_choice == "SVR":
+                        svr = SVR(C=svr_params['C'], epsilon=svr_params['epsilon'], kernel='rbf', gamma='scale')
+                        svr.fit(X_train, y_train)
+                        models = {'SVR': svr}
+                        model_predictions = {'SVR': svr.predict(X_test)}
+                    else:  # Random Forest
+                        rf = RandomForestRegressor(n_estimators=rf_params['n_estimators'], max_depth=rf_params['max_depth'], random_state=42)
+                        rf.fit(X_train, y_train)
+                        models = {'RF': rf}
+                        model_predictions = {'Random Forest': rf.predict(X_test)}
                     
-                    models = train_models(X_train, y_train, svr_params, rf_params)
-                    
-                    # Evaluate the models
+                    # Evaluate the model
                     metrics = evaluate_models(models, X_test, y_test)
                     
                     # Store models and metrics in session state
@@ -172,12 +151,9 @@ with tab1:
                     st.session_state.metrics = metrics
                     
                     # Make predictions on test data for visualization
-                    st.session_state.predictions = {
-                        'SVR': models['SVR'].predict(X_test),
-                        'Random Forest': models['RF'].predict(X_test)
-                    }
+                    st.session_state.predictions = model_predictions
                     
-                    st.success("Models trained successfully!")
+                    st.success(f"{model_choice} model trained successfully!")
         else:
             st.info("Please load a dataset first to train models.")
     
@@ -196,12 +172,19 @@ with tab2:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            # Model selection
-            model_choice = st.selectbox(
-                "Select the model for prediction:",
-                ["SVR", "Random Forest"],
-                index=0
-            )
+            # Get the model that was trained
+            # Determine the available model in session state
+            available_model = None
+            if 'models' in st.session_state and st.session_state.models:
+                if 'SVR' in st.session_state.models:
+                    available_model = "SVR"
+                elif 'RF' in st.session_state.models:
+                    available_model = "Random Forest"
+            
+            if available_model:
+                st.write(f"Using trained model: **{available_model}**")
+            else:
+                st.warning("No trained model found. Please train a model first in the 'Data & Training' tab.")
             
             # Year selection for prediction
             # Check if data exists in session state
@@ -214,40 +197,24 @@ with tab2:
                 min_year = 2023
                 max_year = 2123
             
-            # User can either enter a specific year or select a range
-            pred_year_option = st.radio(
-                "Select prediction type:",
-                ["Single year", "Year range"]
+            # Simplified prediction - just a single year selection with a slider
+            prediction_year = st.slider(
+                "Select year to predict:",
+                min_value=min_year,
+                max_value=max_year,
+                value=2050,
+                step=1
             )
-            
-            if pred_year_option == "Single year":
-                prediction_year = st.number_input(
-                    "Enter the year to predict:",
-                    min_value=min_year,
-                    max_value=max_year,
-                    value=2050
-                )
-                years_to_predict = [prediction_year]
-            else:
-                start_year = st.number_input(
-                    "Start year:",
-                    min_value=min_year,
-                    max_value=max_year-1,
-                    value=2030
-                )
-                end_year = st.number_input(
-                    "End year:",
-                    min_value=start_year+1,
-                    max_value=max_year,
-                    value=min(start_year+50, max_year)
-                )
-                years_to_predict = list(range(start_year, end_year+1))
+            years_to_predict = [prediction_year]
             
             # Button to make prediction
-            if st.button("Predict Sea Level"):
+            if available_model and st.button("Predict Sea Level"):
                 with st.spinner("Making predictions..."):
-                    # Get the selected model
-                    selected_model = st.session_state.models["SVR"] if model_choice == "SVR" else st.session_state.models["RF"]
+                    # Get the trained model
+                    if available_model == "SVR":
+                        selected_model = st.session_state.models["SVR"]
+                    else:  # Random Forest
+                        selected_model = st.session_state.models["RF"]
                     
                     # Make the prediction
                     predictions = predict_sea_level(selected_model, years_to_predict, st.session_state.scaler)
@@ -256,10 +223,10 @@ with tab2:
                     st.session_state.future_predictions = {
                         'Years': years_to_predict,
                         'Predictions': predictions,
-                        'Model': model_choice
+                        'Model': available_model
                     }
                     
-                    st.success(f"Prediction completed for {model_choice} model!")
+                    st.success(f"Prediction completed for {available_model} model!")
         
         with col2:
             if hasattr(st.session_state, 'future_predictions') and st.session_state.future_predictions is not None:
@@ -327,23 +294,36 @@ with tab3:
         )
         
         if viz_option == "Actual vs Predicted":
-            # Allow user to select which model to visualize
-            model_for_viz = st.selectbox(
-                "Select model to visualize:",
-                ["SVR", "Random Forest"]
-            )
+            # Determine the available model in session state
+            available_model = None
+            if 'models' in st.session_state and st.session_state.models:
+                if 'SVR' in st.session_state.models:
+                    available_model = "SVR"
+                elif 'RF' in st.session_state.models:
+                    available_model = "Random Forest"
             
-            # Create the actual vs predicted plot
-            if 'test_years' in st.session_state and st.session_state.test_years is not None:
-                fig = plot_actual_vs_predicted(
-                    st.session_state.test_years,  
-                    st.session_state.y_test, 
-                    st.session_state.predictions[model_for_viz if model_for_viz == "SVR" else "Random Forest"],
-                    model_name=model_for_viz
-                )
-                st.pyplot(fig)
+            if available_model:
+                st.write(f"Showing results for trained model: **{available_model}**")
+                
+                # Create the actual vs predicted plot if test data is available
+                if 'test_years' in st.session_state and st.session_state.test_years is not None:
+                    # Get the correct predictions key based on the model
+                    prediction_key = available_model if available_model == "SVR" else "Random Forest"
+                    
+                    if prediction_key in st.session_state.predictions:
+                        fig = plot_actual_vs_predicted(
+                            st.session_state.test_years,  
+                            st.session_state.y_test, 
+                            st.session_state.predictions[prediction_key],
+                            model_name=available_model
+                        )
+                        st.pyplot(fig)
+                    else:
+                        st.warning(f"No predictions found for {available_model}.")
+                else:
+                    st.warning("Please train the model first before visualizing results.")
             else:
-                st.warning("Please train models first before visualizing results.")
+                st.warning("No trained model found. Please train a model in the 'Data & Training' tab.")
             
         else:  # Model Comparison
             # Create the model comparison plot
