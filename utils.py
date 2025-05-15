@@ -4,47 +4,38 @@ import io
 
 def get_sample_data():
     """
-    Generate a sample dataset for sea level rise.
-    This function creates a realistic sample dataset based on historical measurements.
+    Load the sea level dataset from the CSV file.
     
     Returns:
-    pandas.DataFrame: Sample dataset with Year and Sea_Level_mm columns
+    pandas.DataFrame: Dataset with climate and sea level data
     """
-    # Create a sample dataset with realistic sea level rise
-    # Data is loosely based on satellite measurements since 1993
-    csv_data = """Year,Sea_Level_mm
-1993,0
-1994,2.1
-1995,4.2
-1996,6.8
-1997,9.1
-1998,12.3
-1999,15.5
-2000,17.3
-2001,20.2
-2002,22.9
-2003,25.4
-2004,27.9
-2005,30.1
-2006,32.5
-2007,34.7
-2008,37.8
-2009,40.3
-2010,43.6
-2011,45.9
-2012,49.3
-2013,52.7
-2014,57.1
-2015,62.6
-2016,68.2
-2017,73.4
-2018,78.9
-2019,84.3
-2020,90.1
-2021,96.2
-2022,102.5"""
-    
-    # Load the CSV string into a DataFrame
-    df = pd.read_csv(io.StringIO(csv_data))
-    
-    return df
+    try:
+        # Load sea level data from CSV file
+        df = pd.read_csv('sea_level_data.csv')
+        
+        # Rename column for compatibility with existing app
+        if 'SeaLevelRise' in df.columns and 'Sea_Level_mm' not in df.columns:
+            df = df.rename(columns={'SeaLevelRise': 'Sea_Level_mm'})
+            
+        # Convert values to millimeters if they're in meters
+        if df['Sea_Level_mm'].max() < 10:  # likely in meters
+            df['Sea_Level_mm'] = df['Sea_Level_mm'] * 1000  # convert to mm
+            
+        # Only keep Year and Sea_Level_mm columns
+        if 'Year' in df.columns and 'Sea_Level_mm' in df.columns:
+            # Round Year to nearest integer for better readability
+            df['Year'] = df['Year'].round().astype(int)
+            # Keep only these two columns
+            return df[['Year', 'Sea_Level_mm']]
+        else:
+            raise ValueError("Required columns not found in dataset")
+            
+    except Exception as e:
+        print(f"Error loading sea level data: {str(e)}")
+        # Create a minimal fallback dataset in case of error
+        years = list(range(1970, 2023))
+        sea_levels = [i * 3.5 for i in range(len(years))]
+        return pd.DataFrame({
+            'Year': years, 
+            'Sea_Level_mm': sea_levels
+        })
